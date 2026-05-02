@@ -17,9 +17,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Python syntax check
         run: python -m py_compile scripts/qg-workspace.py
       - name: Cloud sync uploader syntax check
         run: node --check scripts/cloud-sync/cloud_sync_uploader.js
+      - name: Unit tests
+        run: python -m unittest discover tests -v
       - name: Workspace example is valid JSON
         run: python -m json.tool workspace/quantgod.workspace.example.json > /tmp/workspace.json
+      - name: Workspace example is portable
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('workspace/quantgod.workspace.example.json').read_text(encoding='utf-8'))
+          text = json.dumps(data)
+          banned = ['/Users/', 'C:\\\\Users\\\\', 'Desktop/Quard']
+          for marker in banned:
+              if marker in text:
+                  raise SystemExit(f'non-portable workspace example path: {marker}')
+          if 'workspaceRoot' not in data:
+              raise SystemExit('workspace example must define workspaceRoot')
+          print('portable workspace example OK')
+          PY

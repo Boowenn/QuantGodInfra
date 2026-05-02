@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Multi-repo workspace helper for QuantGod."""
+"""Multi-repo workspace helper for QuantGod.
+
+The helper lives in QuantGodInfra and coordinates the four split repositories:
+
+- QuantGodBackend: MQL5, local Node API server, Python tools, tests.
+- QuantGodFrontend: Vue operator workbench source.
+- QuantGodInfra: local workspace/deployment automation.
+- QuantGodDocs: canonical Markdown documentation hub.
+
+All commands are intentionally local-only. Nothing in this helper sends orders,
+changes MT5 presets, stores credentials, or exposes services to the public
+internet.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -8,97 +21,237 @@ import pathlib
 import shutil
 import subprocess
 import sys
-from typing import Sequence
+from collections.abc import Sequence
+from typing import Any
+
+REPO_KEYS = ("backend", "frontend", "infra", "docs")
+DEFAULT_WORKSPACE = "workspace/quantgod.workspace.json"
 
 
-def load_workspace(path: pathlib.Path) -> dict:
+def fail(message: str, code: int = 1) -> None:
+    print(f"QG_WORKSPACE_FAIL: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def load_workspace(path: pathlib.Path) -> dict[str, Any]:
+    """Load and validate a QuantGod workspace JSON file."""
+
+    path = path.expanduser().resolve()
     if not path.exists():
-        raise SystemExit(f"workspace file not found: {path}")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    for key in ["backend", "frontend", "infra", "docs"]:
-        if key not in data:
-            raise SystemExit(f"workspace missing key: {key}")
+        fail(f"workspace file not found: {path}")
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"workspace file is not valid JSON: {path} ({exc})")
+
+    if not isinstance(data, dict):
+        fail(f"workspace root must be a JSON object: {path}")
+
+    for key in REPO_KEYS:
+        value = data.get(key)
+        if not isinstance(value, str) or not value.strip():
+            fail(f"workspace missing string key: {key}")
+
+    data["_workspace_file"] = str(path)
     return data
 
 
+def workspace_root(ws: dict[str, Any]) -> pathlib.Path:
+    workspace_file = pathlib.Path(str(ws["_workspace_file"])) if "_workspace_file" in ws else pathlib.Path.cwd()
+    raw_root = pathlib.Path(str(ws.get("workspaceRoot", "."))).expanduser()
+    if raw_root.is_absolute():
+        return raw_root.resolve()
+    return (workspace_file.parent / raw_root).resolve()
+
+
+def resolve_repo_path(ws: dict[str, Any], key: str) -> pathlib.Path:
+    raw_path = pathlib.Path(str(ws[key])).expanduser()
+    if raw_path.is_absolute():
+        return raw_path.resolve()
+    return (workspace_root(ws) / raw_path).resolve()
+
+
+def repo_paths(ws: dict[str, Any]) -> dict[str, pathlib.Path]:
+    return {key: resolve_repo_path(ws, key) for key in REPO_KEYS}
+
+
 def run(cmd: Sequence[str], cwd: pathlib.Path, check: bool = True) -> int:
-    print(f"\n$ {' '.join(cmd)}\n  cwd={cwd}")
-    proc = subprocess.run(list(cmd), cwd=str(cwd), text=True)
+    printable = " ".join(str(part) for part in cmd)
+    print(f"\n$ {printable}\n  cwd={cwd}")
+    proc = subprocess.run([str(part) for part in cmd], cwd=str(cwd), text=True)
     if check and proc.returncode != 0:
-        raise SystemExit(proc.returncode)
+        fail(f"command failed with exit code {proc.returncode}: {printable}", proc.returncode)
     return proc.returncode
 
 
-def repo_paths(ws: dict) -> dict[str, pathlib.Path]:
-    return {key: pathlib.Path(ws[key]).resolve() for key in ["backend", "frontend", "infra", "docs"]}
+def read_json(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        fail(f"invalid JSON: {path} ({exc})")
+    if not isinstance(data, dict):
+        fail(f"expected JSON object: {path}")
+    return data
 
 
-def cmd_status(ws: dict) -> None:
+def has_npm_script(repo: pathlib.Path, script_name: str) -> bool:
+    scripts = read_json(repo / "package.json").get("scripts", {})
+    return isinstance(scripts, dict) and script_name in scripts
+
+
+def npm_install(repo: pathlib.Path) -> None:
+    if not (repo / "package.json").exists():
+        print(f"skip npm install: package.json not found in {repo}")
+        return
+    if (repo / "node_modules").exists():
+        return
+    command = "ci" if (repo / "package-lock.json").exists() else "install"
+    run(["npm", command], repo)
+
+
+def assert_workspace_paths(paths: dict[str, pathlib.Path]) -> None:
+    for name, path in paths.items():
+        if not path.exists():
+            fail(f"{name} repo path does not exist: {path}")
+        if not path.is_dir():
+            fail(f"{name} repo path is not a directory: {path}")
+
+
+def cmd_status(ws: dict[str, Any]) -> None:
     for name, path in repo_paths(ws).items():
         print(f"\n== {name}: {path}")
+        if not path.exists():
+            print("MISSING")
+            continue
         run(["git", "status", "--short", "--branch"], path, check=False)
 
 
-def cmd_pull(ws: dict) -> None:
-    for path in repo_paths(ws).values():
+def cmd_pull(ws: dict[str, Any]) -> None:
+    paths = repo_paths(ws)
+    assert_workspace_paths(paths)
+    for name, path in paths.items():
+        print(f"\n== pulling {name}: {path}")
         run(["git", "pull", "--ff-only"], path)
 
 
-def cmd_test(ws: dict) -> None:
-    paths = repo_paths(ws)
-    run([sys.executable, "-m", "unittest", "discover", "tests", "-v"], paths["backend"])
-    run(["node", "--test", "tests/node/*.mjs"], paths["backend"], check=False)
-    run(["npm", "run", "build"], paths["frontend"])
-    docs_check = paths["docs"] / "scripts" / "check_docs_links.py"
+def run_backend_python_tests(backend: pathlib.Path) -> None:
+    run([sys.executable, "-m", "unittest", "discover", "tests", "-v"], backend)
+    ci_guard = backend / "tools" / "ci_guard.py"
+    if ci_guard.exists():
+        run([sys.executable, str(ci_guard)], backend)
+
+
+def run_backend_node_tests(backend: pathlib.Path) -> None:
+    """Run backend Node tests without shell globbing and with hard failure."""
+
+    node_dir = backend / "tests" / "node"
+    node_tests = sorted(node_dir.glob("*.mjs"))
+    if not node_tests:
+        print(f"skip backend node tests: no .mjs files under {node_dir}")
+        return
+    run(["node", "--test", *[str(path) for path in node_tests]], backend)
+
+
+def run_frontend_build(frontend: pathlib.Path) -> None:
+    npm_install(frontend)
+    if not has_npm_script(frontend, "build"):
+        fail("frontend package.json does not define scripts.build")
+    run(["npm", "run", "build"], frontend)
+
+
+def run_docs_checks(docs: pathlib.Path) -> None:
+    docs_check = docs / "scripts" / "check_docs_links.py"
     if docs_check.exists():
-        run([sys.executable, str(docs_check)], paths["docs"])
+        run([sys.executable, str(docs_check)], docs)
+    else:
+        print(f"skip docs link check: {docs_check} not found")
 
 
-def cmd_build_frontend(ws: dict) -> None:
+def cmd_test(ws: dict[str, Any]) -> None:
+    """Run the cross-repo smoke test suite.
+
+    Important: every subprocess here is a hard failure by default. The previous
+    implementation used check=False for backend Node/API tests, which let broken
+    route contracts pass the workspace-level test. Keep that class of bug out.
+    """
+
     paths = repo_paths(ws)
-    pkg_lock = paths["frontend"] / "package-lock.json"
-    run(["npm", "ci" if pkg_lock.exists() else "install"], paths["frontend"])
-    run(["npm", "run", "build"], paths["frontend"])
+    assert_workspace_paths(paths)
+    cmd_verify(ws)
+    run_backend_python_tests(paths["backend"])
+    run_backend_node_tests(paths["backend"])
+    run_frontend_build(paths["frontend"])
+    run_docs_checks(paths["docs"])
+    print("QG_WORKSPACE_TEST_OK")
 
 
-def cmd_sync_frontend_dist(ws: dict) -> None:
+def cmd_build_frontend(ws: dict[str, Any]) -> None:
+    run_frontend_build(repo_paths(ws)["frontend"])
+
+
+def cmd_sync_frontend_dist(ws: dict[str, Any]) -> None:
+    if not ws.get("copyFrontendDistToBackend", True):
+        print("frontend dist sync disabled by workspace config")
+        return
+
     paths = repo_paths(ws)
-    frontend_dist = paths["frontend"] / ws.get("frontendDist", "dist")
-    backend_dist = paths["backend"] / ws.get("backendVueDist", "Dashboard/vue-dist")
+    frontend_dist = paths["frontend"] / str(ws.get("frontendDist", "dist"))
+    backend_dist = paths["backend"] / str(ws.get("backendVueDist", "Dashboard/vue-dist"))
     if not frontend_dist.exists():
-        raise SystemExit(f"frontend dist missing; run build-frontend first: {frontend_dist}")
+        fail(f"frontend dist missing; run build-frontend first: {frontend_dist}")
     if backend_dist.exists():
         shutil.rmtree(backend_dist)
     shutil.copytree(frontend_dist, backend_dist)
     print(f"synced {frontend_dist} -> {backend_dist}")
 
 
-def cmd_verify(ws: dict) -> None:
+def check_path(path: pathlib.Path, should_exist: bool, label: str) -> bool:
+    ok = path.exists() == should_exist
+    print(f"{'OK' if ok else 'FAIL'}: {label} :: {path}")
+    return ok
+
+
+def cmd_verify(ws: dict[str, Any]) -> None:
     paths = repo_paths(ws)
+    assert_workspace_paths(paths)
     checks = [
         (paths["backend"] / "tools", True, "backend tools present"),
         (paths["backend"] / "MQL5", True, "backend MQL5 present"),
-        (paths["backend"] / "frontend", False, "backend frontend removed"),
+        (paths["backend"] / "frontend", False, "backend frontend source removed"),
+        (paths["backend"] / "cloudflare", False, "backend infra source removed"),
         (paths["frontend"] / "src", True, "frontend src present"),
+        (paths["frontend"] / "Dashboard", False, "frontend has no backend Dashboard"),
+        (paths["frontend"] / "MQL5", False, "frontend has no MQL5 source"),
         (paths["frontend"] / "tools", False, "frontend has no backend tools"),
         (paths["infra"] / "scripts" / "qg-workspace.py", True, "infra workspace helper present"),
         (paths["docs"] / "docs" / "architecture" / "repo-split.md", True, "docs split guide present"),
     ]
+
     failed = False
     for path, should_exist, label in checks:
-        ok = path.exists() == should_exist
-        print(f"{'OK' if ok else 'FAIL'}: {label} :: {path}")
-        failed = failed or not ok
+        failed = not check_path(path, should_exist, label) or failed
+
     if failed:
-        raise SystemExit(1)
+        fail("workspace verification failed")
+    print("QG_WORKSPACE_VERIFY_OK")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="QuantGod four-repo workspace helper")
+    parser.add_argument(
+        "command",
+        choices=["status", "pull", "test", "build-frontend", "sync-frontend-dist", "verify"],
+    )
+    parser.add_argument("--workspace", default=DEFAULT_WORKSPACE)
+    return parser
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["status", "pull", "test", "build-frontend", "sync-frontend-dist", "verify"])
-    parser.add_argument("--workspace", default="workspace/quantgod.workspace.json")
-    args = parser.parse_args()
-    ws = load_workspace(pathlib.Path(args.workspace).resolve())
+    args = build_parser().parse_args()
+    ws = load_workspace(pathlib.Path(args.workspace))
     {
         "status": cmd_status,
         "pull": cmd_pull,

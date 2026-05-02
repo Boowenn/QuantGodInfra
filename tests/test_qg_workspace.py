@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import pathlib
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "scripts" / "qg-workspace.py"
+spec = importlib.util.spec_from_file_location("qg_workspace", MODULE_PATH)
+assert spec is not None and spec.loader is not None
+qgw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(qgw)
+
+
+class WorkspaceHelperTest(unittest.TestCase):
+    def test_example_is_portable(self) -> None:
+        example = json.loads((ROOT / "workspace/quantgod.workspace.example.json").read_text(encoding="utf-8"))
+        self.assertIn("workspaceRoot", example)
+        serialized = json.dumps(example)
+        for marker in ("/Users/", "C:\\Users\\", "Desktop/Quard"):
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, serialized)
+
+    def test_relative_workspace_paths_resolve_from_workspace_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve()
+            infra = root / "QuantGodInfra"
+            workspace_dir = infra / "workspace"
+            workspace_dir.mkdir(parents=True)
+            for repo in ("QuantGodBackend", "QuantGodFrontend", "QuantGodDocs"):
+                (root / repo).mkdir()
+            config = {
+                "schemaVersion": 1,
+                "workspaceRoot": "../..",
+                "backend": "QuantGodBackend",
+                "frontend": "QuantGodFrontend",
+                "infra": "QuantGodInfra",
+                "docs": "QuantGodDocs",
+            }
+            config_path = workspace_dir / "quantgod.workspace.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            ws = qgw.load_workspace(config_path)
+            paths = qgw.repo_paths(ws)
+            self.assertEqual(paths["backend"], root / "QuantGodBackend")
+            self.assertEqual(paths["frontend"], root / "QuantGodFrontend")
+            self.assertEqual(paths["infra"], root / "QuantGodInfra")
+            self.assertEqual(paths["docs"], root / "QuantGodDocs")
+
+    def test_backend_node_tests_are_enumerated_and_hard_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            backend = pathlib.Path(tmp) / "QuantGodBackend"
+            node_dir = backend / "tests" / "node"
+            node_dir.mkdir(parents=True)
+            test_file = node_dir / "api_contract.mjs"
+            test_file.write_text("import test from 'node:test';\n", encoding="utf-8")
+
+            with mock.patch.object(qgw, "run") as run_mock:
+                qgw.run_backend_node_tests(backend)
+
+            self.assertEqual(run_mock.call_count, 1)
+            args, kwargs = run_mock.call_args
+            command = [str(part) for part in args[0]]
+            self.assertEqual(command[:2], ["node", "--test"])
+            self.assertIn(str(test_file), command)
+            self.assertNotIn("tests/node/*.mjs", command)
+            self.assertNotEqual(kwargs.get("check"), False)
+
+    def test_cmd_verify_checks_split_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            backend = root / "QuantGodBackend"
+            frontend = root / "QuantGodFrontend"
+            infra = root / "QuantGodInfra"
+            docs = root / "QuantGodDocs"
+            (backend / "tools").mkdir(parents=True)
+            (backend / "MQL5").mkdir()
+            (frontend / "src").mkdir(parents=True)
+            (infra / "scripts").mkdir(parents=True)
+            (infra / "scripts" / "qg-workspace.py").write_text("", encoding="utf-8")
+            (docs / "docs" / "architecture").mkdir(parents=True)
+            (docs / "docs" / "architecture" / "repo-split.md").write_text("ok", encoding="utf-8")
+            ws = {
+                "backend": str(backend),
+                "frontend": str(frontend),
+                "infra": str(infra),
+                "docs": str(docs),
+            }
+            qgw.cmd_verify(ws)
+            (backend / "cloudflare").mkdir()
+            with self.assertRaises(SystemExit):
+                qgw.cmd_verify(ws)
+
+
+if __name__ == "__main__":
+    unittest.main()
