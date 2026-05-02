@@ -1,82 +1,21 @@
-# QuantGod Cloudflare Layer
+# Cloudflare 边缘同步
 
-Cloudflare is optional. The repository is designed to run in **local-first** mode by default.
+本目录保存 QuantGod 的 Cloudflare worker/static deployment 相关文件。它属于可选远程展示能力，不是本地 HFM/MT5 运行的必要条件。
 
-If you are only running HFM MT5 and the dashboard on your own machine, stop here and do not enable this folder.
+## 文件说明
 
-This folder deploys the Vue dashboard bundle plus a lightweight ingest API.
+- `src/index.js`：Cloudflare Worker 入口。
+- `wrangler.jsonc`：Wrangler 配置。
+- `.dev.vars.example`：本地开发变量示例，只能放占位符。
+- `package.json`：Cloudflare worker 相关依赖与脚本。
 
-## What It Does
+## 安全规则
 
-- Serves `../Dashboard/vue-dist/` on Cloudflare
-- Accepts MT5 dashboard snapshot pushes at `/api/ingest`
-- Stores the latest snapshot in Cloudflare KV
-- Exposes the latest snapshot at `/api/latest`
+不要提交真实 `QG_INGEST_TOKEN`、Cloudflare token、Telegram token、OpenRouter key 或任何交易凭据。生产值应通过 Wrangler secrets 或平台环境变量配置。
 
-## Deploy Steps
+## 与四仓库的关系
 
-Use this only when you explicitly want remote viewing and accept external request usage.
-
-1. Open a terminal in this folder:
-
-```powershell
-cd C:\Users\OWNER\QuantGod_MT4\cloudflare
-```
-
-2. Create a KV namespace:
-
-```powershell
-npx wrangler kv namespace create QG_STATE
-npx wrangler kv namespace create QG_STATE --preview
-```
-
-3. Paste the returned `id` and `preview_id` into `wrangler.jsonc`.
-
-4. Set the ingest token:
-
-```powershell
-npx wrangler secret put QG_INGEST_TOKEN
-```
-
-5. Deploy:
-
-```powershell
-npx wrangler deploy
-```
-
-After deploy, the dashboard will be available on your Worker domain and the API paths will be:
-
-- `/api/health`
-- `/api/latest`
-- `/api/ingest`
-
-## MT5 Settings
-
-In EA inputs:
-
-- `EnableCloudSync = true`
-- `CloudSyncEndpoint = https://<your-worker-domain>/api/ingest`
-- `CloudSyncToken = <same token as QG_INGEST_TOKEN>`
-
-In MT5 terminal settings, add the same domain to:
-
-- `Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL`
-
-Example:
-
-```text
-https://your-worker-domain.workers.dev
-```
-
-## Dashboard Source Selection
-
-- Local mode is the default and reads `QuantGod_Dashboard.json`
-- Cloud mode defaults to `/api/latest`
-- You can force a custom API by appending `?api=https://your-domain/api/latest`
-
-## Local Uploader Safety
-
-The local uploader is opt-in.
-
-- `Start_QuantGod.bat` only starts cloud sync when `[HFM MT5]/MQL5/Files/quantgod_cloud_sync.enabled.json` exists
-- if that file does not exist, the project stays fully local
+- 前端源码在 `QuantGodFrontend`。
+- 后端 API 和运行证据在 `QuantGodBackend`。
+- 详细运维文档在 `QuantGodDocs`。
+- 本目录只负责 Cloudflare 侧的部署材料。
