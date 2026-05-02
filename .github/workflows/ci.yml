@@ -1,0 +1,23 @@
+name: QuantGod Infra CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python syntax check
+        run: python -m py_compile scripts/qg-workspace.py
+      - name: Workspace example is valid JSON
+        run: python -m json.tool workspace/quantgod.workspace.example.json > /tmp/workspace.json

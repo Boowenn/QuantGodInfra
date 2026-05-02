@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.quantgod_ingest_token.local
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+*.pyc
+workspace/quantgod.workspace.json
