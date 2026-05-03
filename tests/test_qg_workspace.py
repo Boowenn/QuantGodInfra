@@ -69,6 +69,57 @@ class WorkspaceHelperTest(unittest.TestCase):
             self.assertNotIn("tests/node/*.mjs", command)
             self.assertNotEqual(kwargs.get("check"), False)
 
+    def test_parser_exposes_closed_loop_command(self) -> None:
+        parser = qgw.build_parser()
+        args = parser.parse_args(["closed-loop", "--workspace", "workspace/quantgod.workspace.json"])
+        self.assertEqual(args.command, "closed-loop")
+
+    def test_closed_loop_runs_quality_build_sync_and_backend_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            backend = root / "QuantGodBackend"
+            frontend = root / "QuantGodFrontend"
+            infra = root / "QuantGodInfra"
+            docs = root / "QuantGodDocs"
+            (backend / "tools").mkdir(parents=True)
+            (backend / "MQL5").mkdir()
+            (frontend / "src").mkdir(parents=True)
+            (frontend / "dist").mkdir()
+            (infra / "scripts").mkdir(parents=True)
+            (infra / "scripts" / "qg-workspace.py").write_text("", encoding="utf-8")
+            (docs / "docs" / "architecture").mkdir(parents=True)
+            (docs / "docs" / "architecture" / "repo-split.md").write_text("ok", encoding="utf-8")
+            ws = {
+                "backend": str(backend),
+                "frontend": str(frontend),
+                "infra": str(infra),
+                "docs": str(docs),
+                "frontendDist": "dist",
+                "backendVueDist": "Dashboard/vue-dist",
+            }
+            calls: list[str] = []
+
+            def remember(name: str):
+                def inner(*_args, **_kwargs):
+                    calls.append(name)
+
+                return inner
+
+            with (
+                mock.patch.object(qgw, "run_frontend_quality", remember("frontend_quality")),
+                mock.patch.object(qgw, "run_frontend_build", remember("frontend_build")),
+                mock.patch.object(qgw, "run_backend_python_tests", remember("backend_python")),
+                mock.patch.object(qgw, "run_backend_node_tests", remember("backend_node")),
+                mock.patch.object(qgw, "run_docs_checks", remember("docs")),
+            ):
+                qgw.cmd_closed_loop(ws)
+
+            self.assertEqual(
+                calls,
+                ["frontend_quality", "frontend_build", "backend_python", "backend_node", "docs"],
+            )
+            self.assertTrue((backend / "Dashboard" / "vue-dist").exists())
+
     def test_cmd_verify_checks_split_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
