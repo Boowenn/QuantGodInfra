@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""QuantGod P3-1 Docker/local-dev stack helper.
-
-This helper owns only the local Docker Compose workflow. It statically checks that the
-stack remains host-local, dry-run guarded, and limited to backend/frontend services.
-"""
+"""QuantGod P3-1/P3-2 Docker/local-dev stack helper."""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +25,13 @@ REQUIRED_GUARD_MARKERS = [
     'QG_ORDER_SEND_ALLOWED: "0"',
     'QG_LIVE_PRESET_MUTATION_ALLOWED: "0"',
     'QG_CREDENTIAL_STORAGE_ALLOWED: "0"',
+    'QG_TELEGRAM_PUSH_ALLOWED: "${QG_TELEGRAM_PUSH_ALLOWED:-0}"',
     'QG_TELEGRAM_COMMANDS_ALLOWED: "0"',
+]
+REQUIRED_TELEGRAM_PASS_THROUGH = [
+    'QG_TELEGRAM_BOT_TOKEN: "${QG_TELEGRAM_BOT_TOKEN:-}"',
+    'QG_TELEGRAM_CHAT_ID: "${QG_TELEGRAM_CHAT_ID:-}"',
+    'QG_TELEGRAM_API_BASE_URL: "${QG_TELEGRAM_API_BASE_URL:-https://api.telegram.org}"',
 ]
 FORBIDDEN_MARKERS = [
     "0.0.0.0:${QG_BACKEND_PORT",
@@ -37,7 +39,6 @@ FORBIDDEN_MARKERS = [
     '"8080:8080"',
     '"5173:5173"',
     "/var/run/docker.sock",
-    "TELEGRAM_BOT_TOKEN",
     "OPENROUTER_API_KEY",
     "BROKER_API_KEY",
     "MT5_PASSWORD",
@@ -61,6 +62,17 @@ def read_compose() -> str:
     return COMPOSE_FILE.read_text(encoding="utf-8")
 
 
+def _telegram_secret_literal_errors(text: str) -> list[str]:
+    errors: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("QG_TELEGRAM_BOT_TOKEN:") and '${QG_TELEGRAM_BOT_TOKEN:-}' not in stripped:
+            errors.append("QG_TELEGRAM_BOT_TOKEN must be pass-through only, not a literal token")
+        if stripped.startswith("QG_TELEGRAM_CHAT_ID:") and '${QG_TELEGRAM_CHAT_ID:-}' not in stripped:
+            errors.append("QG_TELEGRAM_CHAT_ID must be pass-through only, not a literal chat id")
+    return errors
+
+
 def static_check() -> list[str]:
     errors: list[str] = []
     text = read_compose()
@@ -70,17 +82,21 @@ def static_check() -> list[str]:
     for marker in REQUIRED_GUARD_MARKERS:
         if marker not in text:
             errors.append(f"missing safety guard marker: {marker}")
+    for marker in REQUIRED_TELEGRAM_PASS_THROUGH:
+        if marker not in text:
+            errors.append(f"missing Telegram pass-through marker: {marker}")
     lower = text.lower()
     for marker in FORBIDDEN_MARKERS:
         if marker.lower() in lower:
             errors.append(f"forbidden compose marker present: {marker}")
     for marker in FORBIDDEN_SERVICE_WORDS:
         if marker in lower:
-            errors.append(f"forbidden P3-1 service present: {marker}")
+            errors.append(f"forbidden local-dev service present: {marker}")
     if "services:" not in text or "  backend:" not in text or "  frontend:" not in text:
         errors.append("compose.local.yml must define backend and frontend services")
     if "condition: service_healthy" not in text:
         errors.append("frontend must wait for backend service_healthy")
+    errors.extend(_telegram_secret_literal_errors(text))
     return errors
 
 
@@ -129,6 +145,7 @@ def command_doctor(_args: argparse.Namespace) -> int:
     print(f"env file: {ENV_FILE if ENV_FILE.exists() else ENV_EXAMPLE}")
     print("backend URL: http://127.0.0.1:8080")
     print("frontend URL: http://127.0.0.1:5173")
+    print("telegram push: pass-through only, disabled unless QG_TELEGRAM_PUSH_ALLOWED=1")
     return rc
 
 
@@ -138,6 +155,10 @@ def command_config(_args: argparse.Namespace) -> int:
 
 def command_build(_args: argparse.Namespace) -> int:
     return run_compose(["build"])
+
+
+def command_ps(_args: argparse.Namespace) -> int:
+    return run_compose(["ps"])
 
 
 def command_up(args: argparse.Namespace) -> int:
@@ -154,10 +175,6 @@ def command_down(args: argparse.Namespace) -> int:
     return run_compose(compose_args)
 
 
-def command_ps(_args: argparse.Namespace) -> int:
-    return run_compose(["ps"])
-
-
 def command_logs(args: argparse.Namespace) -> int:
     compose_args = ["logs"]
     if args.follow:
@@ -169,7 +186,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="QuantGod local Docker Compose helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("static-check", help="Run local-only static guard checks").set_defaults(func=command_static_check)
+    subparsers.add_parser("static-check", help="Run local-only static guard checks").set_defaults(
+        func=command_static_check
+    )
     subparsers.add_parser("doctor", help="Show local Docker readiness").set_defaults(func=command_doctor)
     subparsers.add_parser("config", help="Render Docker Compose config").set_defaults(func=command_config)
     subparsers.add_parser("build", help="Build local backend/frontend images").set_defaults(func=command_build)
@@ -187,7 +206,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     logs = subparsers.add_parser("logs", help="Show stack logs")
     logs.add_argument("--follow", action="store_true", help="Follow logs")
     logs.set_defaults(func=command_logs)
-
     return parser.parse_args(argv)
 
 
