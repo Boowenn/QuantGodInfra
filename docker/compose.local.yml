@@ -1,0 +1,65 @@
+name: quantgod-local-dev
+
+services:
+  backend:
+    build:
+      context: ../../QuantGodBackend
+      dockerfile: Dockerfile.local
+    image: quantgod/backend:local-dev
+    environment:
+      QG_DASHBOARD_HOST: "0.0.0.0"
+      QG_DASHBOARD_PORT: "8080"
+      QG_PYTHON_BIN: "python3"
+      QG_RUNTIME_DIR: "/app/runtime"
+      QG_STATE_DB: "/app/runtime/quantgod_state.sqlite"
+      QG_DOCKER_LOCAL_DEV: "1"
+      QG_LOCAL_ONLY: "1"
+      QG_DRY_RUN: "1"
+      QG_KILL_SWITCH_LOCKED: "1"
+      QG_ORDER_SEND_ALLOWED: "0"
+      QG_LIVE_PRESET_MUTATION_ALLOWED: "0"
+      QG_CREDENTIAL_STORAGE_ALLOWED: "0"
+      QG_TELEGRAM_COMMANDS_ALLOWED: "0"
+    ports:
+      - "127.0.0.1:${QG_BACKEND_PORT:-8080}:8080"
+    volumes:
+      - quantgod_backend_runtime:/app/runtime
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const http=require('http'); const req=http.get('http://127.0.0.1:8080/api/state/status', (res)=>{res.resume(); process.exit(res.statusCode < 500 ? 0 : 1);}); req.on('error',()=>process.exit(1)); req.setTimeout(4000,()=>{req.destroy(); process.exit(1);});"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - quantgod_local
+    restart: "no"
+
+  frontend:
+    build:
+      context: ../../QuantGodFrontend
+      dockerfile: Dockerfile.local
+    image: quantgod/frontend:local-dev
+    environment:
+      QG_DOCKER_LOCAL_DEV: "1"
+      QG_BACKEND_API_BASE_URL: "http://backend:8080"
+      VITE_QG_API_BASE: "/api"
+    ports:
+      - "127.0.0.1:${QG_FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - quantgod_local
+    restart: "no"
+
+networks:
+  quantgod_local:
+    driver: bridge
+
+volumes:
+  quantgod_backend_runtime:
+    name: quantgod_backend_runtime_local

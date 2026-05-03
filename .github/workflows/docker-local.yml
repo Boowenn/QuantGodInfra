@@ -1,0 +1,30 @@
+name: Docker local static guard
+
+on:
+  push:
+    paths:
+      - "docker/**"
+      - "scripts/qg-docker-local.py"
+      - "tests/test_docker_local.py"
+      - ".github/workflows/docker-local.yml"
+  pull_request:
+    paths:
+      - "docker/**"
+      - "scripts/qg-docker-local.py"
+      - "tests/test_docker_local.py"
+      - ".github/workflows/docker-local.yml"
+
+jobs:
+  docker-local-static-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python syntax check
+        run: python -m py_compile scripts/qg-docker-local.py
+      - name: Static tests
+        run: python -m unittest discover tests -v
+      - name: Docker local static guard
+        run: python scripts/qg-docker-local.py static-check
