@@ -43,3 +43,16 @@ jobs:
               raise SystemExit('workspace example must define workspaceRoot')
           print('portable workspace example OK')
           PY
+
+      - name: Repo manifest is portable
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          text = Path('repo-manifest.json').read_text(encoding='utf-8')
+          banned = ['/Users/', 'C:\\\\Users\\\\', 'Desktop/Quard', '/home/']
+          for marker in banned:
+              if marker in text:
+                  sys.exit(f'non-portable manifest path: {marker}')
+          print('portable manifest OK')
+          PY
