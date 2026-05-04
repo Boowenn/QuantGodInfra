@@ -49,7 +49,12 @@ python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json tes
 python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json build-frontend
 python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json sync-frontend-dist
 python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json verify
+python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json closed-loop
 ```
+
+`closed-loop` 是本地最小闭环：先跑前端 API/拆包/单元 guard，再编译 Vue，随后把 `dist/`
+同步到 `QuantGodBackend/Dashboard/vue-dist`，最后跑 backend Python/Node 检查和 Docs 链接检查。
+它不会改 MT5 实盘配置、不会保存凭据，也不会触发任何交易动作。
 
 ## Cloudflare
 

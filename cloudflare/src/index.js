@@ -21,10 +21,28 @@ function getBearerToken(request) {
   return request.headers.get('x-quantgod-token') || '';
 }
 
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 function isAuthorized(request, env) {
   const expected = env.QG_INGEST_TOKEN;
-  if (!expected) return true;
-  return getBearerToken(request) === expected;
+  if (!expected) return false;
+  const token = getBearerToken(request);
+  if (!token) return false;
+  return constantTimeEqual(token, expected);
+}
+
+async function requireTokenConfigured(env) {
+  if (!env.QG_INGEST_TOKEN) {
+    return jsonResponse({ ok: false, error: 'WORKER_NOT_CONFIGURED' }, 503);
+  }
+  return null;
 }
 
 async function handleIngest(request, env) {
@@ -108,6 +126,9 @@ async function handleHealth(env) {
 
 export default {
   async fetch(request, env) {
+    const notConfigured = await requireTokenConfigured(env);
+    if (notConfigured) return notConfigured;
+
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {

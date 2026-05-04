@@ -162,6 +162,15 @@ def run_frontend_build(frontend: pathlib.Path) -> None:
     run(["npm", "run", "build"], frontend)
 
 
+def run_frontend_quality(frontend: pathlib.Path) -> None:
+    """Run the smallest useful frontend quality loop before a build artifact is copied."""
+
+    npm_install(frontend)
+    for script_name in ("contract", "api-client", "code-splitting", "test"):
+        if has_npm_script(frontend, script_name):
+            run(["npm", "run", script_name], frontend)
+
+
 def run_docs_checks(docs: pathlib.Path) -> None:
     docs_check = docs / "scripts" / "check_docs_links.py"
     if docs_check.exists():
@@ -183,6 +192,7 @@ def cmd_test(ws: dict[str, Any]) -> None:
     cmd_verify(ws)
     run_backend_python_tests(paths["backend"])
     run_backend_node_tests(paths["backend"])
+    run_frontend_quality(paths["frontend"])
     run_frontend_build(paths["frontend"])
     run_docs_checks(paths["docs"])
     print("QG_WORKSPACE_TEST_OK")
@@ -206,6 +216,21 @@ def cmd_sync_frontend_dist(ws: dict[str, Any]) -> None:
         shutil.rmtree(backend_dist)
     shutil.copytree(frontend_dist, backend_dist)
     print(f"synced {frontend_dist} -> {backend_dist}")
+
+
+def cmd_closed_loop(ws: dict[str, Any]) -> None:
+    """Build, copy, and verify the local operator workbench as one closed loop."""
+
+    paths = repo_paths(ws)
+    assert_workspace_paths(paths)
+    cmd_verify(ws)
+    run_frontend_quality(paths["frontend"])
+    run_frontend_build(paths["frontend"])
+    cmd_sync_frontend_dist(ws)
+    run_backend_python_tests(paths["backend"])
+    run_backend_node_tests(paths["backend"])
+    run_docs_checks(paths["docs"])
+    print("QG_WORKSPACE_CLOSED_LOOP_OK")
 
 
 def check_path(path: pathlib.Path, should_exist: bool, label: str) -> bool:
@@ -243,7 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="QuantGod four-repo workspace helper")
     parser.add_argument(
         "command",
-        choices=["status", "pull", "test", "build-frontend", "sync-frontend-dist", "verify"],
+        choices=["status", "pull", "test", "build-frontend", "sync-frontend-dist", "verify", "closed-loop"],
     )
     parser.add_argument("--workspace", default=DEFAULT_WORKSPACE)
     return parser
@@ -259,6 +284,7 @@ def main() -> None:
         "build-frontend": cmd_build_frontend,
         "sync-frontend-dist": cmd_sync_frontend_dist,
         "verify": cmd_verify,
+        "closed-loop": cmd_closed_loop,
     }[args.command](ws)
 
 
