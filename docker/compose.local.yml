@@ -40,7 +40,14 @@ services:
       start_period: 20s
     networks:
       - quantgod_local
-    restart: "no"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
   frontend:
     build:
@@ -58,7 +65,7 @@ services:
         condition: service_healthy
     networks:
       - quantgod_local
-    restart: "no"
+    restart: unless-stopped
 
 networks:
   quantgod_local:

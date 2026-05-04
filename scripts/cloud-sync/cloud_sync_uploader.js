@@ -8,6 +8,8 @@ const pollIntervalMs = 10000;
 
 let lastSignature = '';
 let lastSuccessAt = '';
+let consecutiveFailures = 0;
+const MAX_FAILURES_BEFORE_ALERT = 5;
 
 function log(message) {
   console.log(`[QuantGod Cloud Sync] ${message}`);
@@ -122,9 +124,15 @@ async function tick() {
     const result = await sendPayload(config, payload);
     lastSignature = signature;
     lastSuccessAt = new Date().toLocaleString('sv-SE').replace('T', ' ');
+    consecutiveFailures = 0;
     log(`Synced OK -> ${config.endpoint} (${result.statusCode})`);
   } catch (error) {
-    log(`Sync failed: ${error.message}`);
+    consecutiveFailures++;
+    const severity = consecutiveFailures >= MAX_FAILURES_BEFORE_ALERT ? 'ALERT' : 'WARN';
+    log(`[${severity}] Sync failed (${consecutiveFailures}/${MAX_FAILURES_BEFORE_ALERT}): ${error.message}`);
+    if (consecutiveFailures === MAX_FAILURES_BEFORE_ALERT) {
+      log(`[ALERT] Cloud sync has failed ${MAX_FAILURES_BEFORE_ALERT} times in a row. Check network and Cloudflare endpoint.`);
+    }
   }
 }
 

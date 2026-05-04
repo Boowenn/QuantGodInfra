@@ -86,6 +86,13 @@ async function handleIngest(request, env) {
     })
   );
 
+  // Ring history: keep last 24 snapshots for debugging
+  const ringIndexRaw = await env.QG_STATE.get('ring_index');
+  const ringIndex = ringIndexRaw ? parseInt(ringIndexRaw, 10) : 0;
+  const nextIndex = (ringIndex + 1) % 24;
+  await env.QG_STATE.put(`ring_${String(nextIndex).padStart(2, '0')}`, JSON.stringify(enriched));
+  await env.QG_STATE.put('ring_index', String(nextIndex));
+
   return jsonResponse({
     ok: true,
     receivedAt,
@@ -124,6 +131,17 @@ async function handleHealth(env) {
   });
 }
 
+async function handleHistory(env) {
+  const snapshots = [];
+  for (let i = 0; i < 24; i++) {
+    const raw = await env.QG_STATE.get(`ring_${String(i).padStart(2, '0')}`);
+    if (raw) {
+      try { snapshots.push(JSON.parse(raw)); } catch (_) { /* skip corrupt */ }
+    }
+  }
+  return jsonResponse({ ok: true, count: snapshots.length, snapshots });
+}
+
 export default {
   async fetch(request, env) {
     const notConfigured = await requireTokenConfigured(env);
@@ -151,6 +169,10 @@ export default {
         return jsonResponse({ ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
       }
       return handleIngest(request, env);
+    }
+
+    if (url.pathname === '/api/history') {
+      return handleHistory(env);
     }
 
     return env.ASSETS.fetch(request);
