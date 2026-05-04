@@ -145,6 +145,34 @@ class WorkspaceHelperTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 qgw.cmd_verify(ws)
 
+    def test_cmd_verify_runs_split_path_guard_with_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp).resolve()
+            backend = root / "QuantGodBackend"
+            frontend = root / "QuantGodFrontend"
+            infra = root / "QuantGodInfra"
+            docs = root / "QuantGodDocs"
+            (backend / "tools").mkdir(parents=True)
+            (backend / "MQL5").mkdir()
+            (frontend / "src").mkdir(parents=True)
+            (infra / "scripts").mkdir(parents=True)
+            split_guard = infra / "scripts" / "qg-split-path-guard.py"
+            split_guard.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            (infra / "scripts" / "qg-workspace.py").write_text("", encoding="utf-8")
+            (docs / "docs" / "architecture").mkdir(parents=True)
+            (docs / "docs" / "architecture" / "repo-split.md").write_text("ok", encoding="utf-8")
+            ws = {
+                "backend": str(backend),
+                "frontend": str(frontend),
+                "infra": str(infra),
+                "docs": str(docs),
+            }
+
+            with mock.patch.object(qgw, "run") as run_mock:
+                qgw.cmd_verify(ws)
+
+            run_mock.assert_called_once_with(["python3", str(split_guard), "--root", str(root)], infra)
+
 
 if __name__ == "__main__":
     unittest.main()

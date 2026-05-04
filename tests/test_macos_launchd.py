@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import pathlib
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "scripts" / "qg-macos-launchd.py"
+spec = importlib.util.spec_from_file_location("qg_macos_launchd", MODULE_PATH)
+assert spec is not None and spec.loader is not None
+launchd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(launchd)
+
+
+class MacLaunchdHelperTests(unittest.TestCase):
+    def test_rendered_env_uses_split_repo_paths_and_safe_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            paths = {
+                "backend": root / "QuantGodBackend",
+                "frontend": root / "QuantGodFrontend",
+                "infra": root / "QuantGodInfra",
+                "docs": root / "QuantGodDocs",
+            }
+            text = launchd.render_env(paths)
+            self.assertIn("QG_BACKEND_ROOT", text)
+            self.assertIn("QuantGodBackend", text)
+            self.assertIn("QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN='1'", text)
+            self.assertIn("QG_POLYMARKET_REAL_EXECUTION='false'", text)
+            self.assertIn("QG_TELEGRAM_COMMANDS_ALLOWED='0'", text)
+            self.assertNotIn("/QuantGod/", text)
+
+    def test_plists_keep_trading_mutation_out_of_launch_layer(self) -> None:
+        for service in launchd.SERVICES.values():
+            payload = launchd.render_plist(service)
+            serialized = json.dumps(payload, sort_keys=True)
+            self.assertIn(service["label"], serialized)
+            self.assertNotIn("ORDER_SEND_ALLOWED=1", serialized)
+            self.assertNotIn("LIVE_PRESET_MUTATION_ALLOWED=1", serialized)
+
+
+if __name__ == "__main__":
+    unittest.main()

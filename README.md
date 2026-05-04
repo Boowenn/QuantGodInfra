@@ -56,6 +56,39 @@ python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json clo
 同步到 `QuantGodBackend/Dashboard/vue-dist`，最后跑 backend Python/Node 检查和 Docs 链接检查。
 它不会改 MT5 实盘配置、不会保存凭据，也不会触发任何交易动作。
 
+## macOS 后台自动化
+
+macOS 本机使用 `launchd` 做常驻自动化。Infra 提供统一安装器：
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodInfra
+python3 scripts/qg-macos-launchd.py --workspace workspace/quantgod.workspace.json doctor
+python3 scripts/qg-macos-launchd.py --workspace workspace/quantgod.workspace.json install
+python3 scripts/qg-macos-launchd.py status
+```
+
+安装后会生成并加载四个 LaunchAgent：
+
+- `com.quantgod.backend-api`：保持后端 `/api/*` 与 `/vue/` 服务可用。
+- `com.quantgod.frontend-dev`：保持本机 Vite 前端 `http://127.0.0.1:5173/vue/` 可用。
+- `com.quantgod.daily-autopilot`：每小时刷新 MT5、ParamLab、Polymarket、治理、每日复盘和待办证据；隔离 Strategy Tester 只在 guard 允许时运行。
+- `com.quantgod.ai-telegram-monitor`：每 15 分钟读取 MT5 证据，联动 DeepSeek 生成中文建议，并通过 Telegram push-only 通道推送。
+
+私有环境写入 `~/.quantgod/launchd.env`，日志写入 `~/.quantgod/logs/`。Telegram token 与 DeepSeek key 继续只放在
+`QuantGodBackend/.env.telegram.local` 和 `QuantGodBackend/.env.deepseek.local`，不会写入 Git。
+
+卸载：
+
+```bash
+python3 scripts/qg-macos-launchd.py uninstall
+```
+
+拆分路径检查：
+
+```bash
+python3 scripts/qg-split-path-guard.py --root /Users/bowen/Desktop/Quard --include-codex-automations
+```
+
 ## Cloudflare
 
 Cloudflare 是可选能力，本地 HFM/MT5 运行不依赖它。所有 token 和 secret 必须放在 Wrangler secrets 或本机环境变量里，不能进入 Git。
