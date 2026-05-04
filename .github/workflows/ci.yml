@@ -26,6 +26,9 @@ jobs:
         run: node --check scripts/cloud-sync/cloud_sync_uploader.js
       - name: Unit tests
         run: python -m unittest discover tests -v
+      - name: Cloudflare worker tests
+        working-directory: tests
+        run: npm test
       - name: Workspace example is valid JSON
         run: python -m json.tool workspace/quantgod.workspace.example.json > /tmp/workspace.json
       - name: Workspace example is portable

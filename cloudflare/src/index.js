@@ -131,9 +131,17 @@ async function handleHealth(env) {
   });
 }
 
-async function handleHistory(env) {
+async function handleHistory(request, env) {
+  if (!isAuthorized(request, env)) {
+    return jsonResponse({ ok: false, error: 'UNAUTHORIZED' }, 401);
+  }
+
   const snapshots = [];
-  for (let i = 0; i < 24; i++) {
+  const ringIndexRaw = await env.QG_STATE.get('ring_index');
+  const latestIndex = ringIndexRaw ? parseInt(ringIndexRaw, 10) : 0;
+  const ringIndex = Number.isFinite(latestIndex) ? latestIndex : 0;
+  for (let offset = 1; offset <= 24; offset++) {
+    const i = (ringIndex + offset) % 24;
     const raw = await env.QG_STATE.get(`ring_${String(i).padStart(2, '0')}`);
     if (raw) {
       try { snapshots.push(JSON.parse(raw)); } catch (_) { /* skip corrupt */ }
@@ -172,7 +180,10 @@ export default {
     }
 
     if (url.pathname === '/api/history') {
-      return handleHistory(env);
+      if (request.method !== 'GET') {
+        return jsonResponse({ ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+      }
+      return handleHistory(request, env);
     }
 
     return env.ASSETS.fetch(request);

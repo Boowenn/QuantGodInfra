@@ -1,95 +1,133 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../cloudflare/src/index.js';
 
-// Inline the worker logic for testing (no Miniflare dependency)
-const JSON_HEADERS = {
-  'content-type': 'application/json; charset=utf-8',
-  'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET,POST,OPTIONS',
-  'access-control-allow-headers': 'Content-Type, Authorization, X-QuantGod-Token, X-QuantGod-Source'
-};
+const TOKEN = 'test-token-123';
 
-function jsonResponse(payload, status = 200) {
-  return { status, headers: JSON_HEADERS, body: JSON.stringify(payload, null, 2) };
+function createEnv(token = TOKEN) {
+  const store = new Map();
+  return {
+    QG_INGEST_TOKEN: token,
+    QG_STATE: {
+      async get(key) {
+        return store.has(key) ? store.get(key) : null;
+      },
+      async put(key, value) {
+        store.set(key, value);
+      }
+    },
+    ASSETS: {
+      async fetch() {
+        return new Response('asset fallback', { status: 404 });
+      }
+    }
+  };
 }
 
-function getBearerToken(headers) {
-  const auth = headers['authorization'] || headers['x-quantgod-token'] || '';
-  if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
-  return auth;
+function snapshot(seq = 0) {
+  return {
+    runtime: { tradeStatus: `STATUS_${seq}` },
+    account: { login: 186054398 },
+    watchlist: 'USDJPYc',
+    seq
+  };
 }
 
-function constantTimeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
+function request(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (options.token) {
+    headers.set('authorization', `Bearer ${options.token}`);
+  }
+  if (options.json) {
+    headers.set('content-type', 'application/json');
+  }
+  return new Request(`https://quantgod.example${path}`, {
+    method: options.method || 'GET',
+    headers,
+    body: options.json ? JSON.stringify(options.json) : options.body
+  });
 }
 
-function isAuthorized(headers, env) {
-  const expected = env.QG_INGEST_TOKEN;
-  if (!expected) return false;
-  const token = getBearerToken(headers);
-  if (!token) return false;
-  return constantTimeEqual(token, expected);
+async function readJson(response) {
+  return JSON.parse(await response.text());
 }
 
-describe('Cloudflare Ingest Worker', () => {
-  const validEnv = { QG_INGEST_TOKEN: 'test-token-123' };
-  const emptyEnv = {};
+async function ingest(env, seq) {
+  return worker.fetch(
+    request('/api/ingest', {
+      method: 'POST',
+      token: TOKEN,
+      json: snapshot(seq)
+    }),
+    env
+  );
+}
 
-  it('rejects requests with no token configured', () => {
-    expect(isAuthorized({}, emptyEnv)).toBe(false);
-  });
+test('fails closed when token is not configured', async () => {
+  const env = createEnv('');
+  const response = await worker.fetch(request('/api/health'), env);
+  assert.equal(response.status, 503);
+  const body = await readJson(response);
+  assert.equal(body.error, 'WORKER_NOT_CONFIGURED');
+});
 
-  it('rejects requests with no token provided', () => {
-    expect(isAuthorized({}, validEnv)).toBe(false);
-  });
+test('rejects ingest without a valid token', async () => {
+  const env = createEnv();
+  const response = await worker.fetch(request('/api/ingest', { method: 'POST', json: snapshot(1) }), env);
+  assert.equal(response.status, 401);
+});
 
-  it('accepts valid bearer token', () => {
-    expect(isAuthorized({ authorization: 'Bearer test-token-123' }, validEnv)).toBe(true);
-  });
+test('stores latest snapshot after authorized ingest', async () => {
+  const env = createEnv();
+  const ingestResponse = await ingest(env, 1);
+  assert.equal(ingestResponse.status, 200);
 
-  it('accepts valid x-quantgod-token header', () => {
-    expect(isAuthorized({ 'x-quantgod-token': 'test-token-123' }, validEnv)).toBe(true);
-  });
+  const latestResponse = await worker.fetch(request('/api/latest'), env);
+  assert.equal(latestResponse.status, 200);
+  const body = await readJson(latestResponse);
+  assert.equal(body.runtime.tradeStatus, 'STATUS_1');
+  assert.equal(body.account.login, 186054398);
+  assert.equal(body.seq, 1);
+});
 
-  it('rejects wrong token', () => {
-    expect(isAuthorized({ authorization: 'Bearer wrong-token' }, validEnv)).toBe(false);
-  });
+test('protects snapshot history with token and only allows GET', async () => {
+  const env = createEnv();
+  await ingest(env, 1);
 
-  it('rejects tokens of different lengths without leaking timing', () => {
-    expect(isAuthorized({ authorization: 'Bearer short' }, validEnv)).toBe(false);
-    expect(isAuthorized({ authorization: 'Bearer very-long-token-that-does-not-match' }, validEnv)).toBe(false);
-  });
+  const unauthorized = await worker.fetch(request('/api/history'), env);
+  assert.equal(unauthorized.status, 401);
 
-  it('constantTimeEqual handles length mismatch', () => {
-    expect(constantTimeEqual('abc', 'abcd')).toBe(false);
-    expect(constantTimeEqual('abc', 'abc')).toBe(true);
-    expect(constantTimeEqual('', '')).toBe(true);
-  });
+  const wrongMethod = await worker.fetch(request('/api/history', { method: 'POST', token: TOKEN }), env);
+  assert.equal(wrongMethod.status, 405);
 
-  it('jsonResponse produces correct structure', () => {
-    const res = jsonResponse({ ok: true }, 200);
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('application/json');
-    const body = JSON.parse(res.body);
-    expect(body.ok).toBe(true);
-  });
+  const authorized = await worker.fetch(request('/api/history', { token: TOKEN }), env);
+  assert.equal(authorized.status, 200);
+  const body = await readJson(authorized);
+  assert.equal(body.ok, true);
+  assert.equal(body.count, 1);
+});
 
-  it('jsonResponse with error status', () => {
-    const res = jsonResponse({ ok: false, error: 'UNAUTHORIZED' }, 401);
-    expect(res.status).toBe(401);
-    const body = JSON.parse(res.body);
-    expect(body.error).toBe('UNAUTHORIZED');
-  });
+test('returns ring history in chronological order with the newest 24 snapshots', async () => {
+  const env = createEnv();
+  for (let i = 0; i < 26; i++) {
+    const response = await ingest(env, i);
+    assert.equal(response.status, 200);
+  }
 
-  it('validates ingest payload has required fields', () => {
-    const missingRuntime = { account: {} };
-    const missingAccount = { runtime: {} };
-    const valid = { runtime: {}, account: {} };
-    expect(missingRuntime.runtime && missingRuntime.account).toBeFalsy();
-    expect(missingAccount.runtime && missingAccount.account).toBeFalsy();
-    expect(valid.runtime && valid.account).toBeTruthy();
-  });
+  const historyResponse = await worker.fetch(request('/api/history', { token: TOKEN }), env);
+  assert.equal(historyResponse.status, 200);
+  const body = await readJson(historyResponse);
+  assert.equal(body.count, 24);
+  assert.deepEqual(body.snapshots.map((row) => row.seq), Array.from({ length: 24 }, (_, i) => i + 2));
+});
+
+test('validates ingest payload has required core fields', async () => {
+  const env = createEnv();
+  const response = await worker.fetch(
+    request('/api/ingest', { method: 'POST', token: TOKEN, json: { runtime: {} } }),
+    env
+  );
+  assert.equal(response.status, 400);
+  const body = await readJson(response);
+  assert.equal(body.error, 'MISSING_CORE_FIELDS');
 });
