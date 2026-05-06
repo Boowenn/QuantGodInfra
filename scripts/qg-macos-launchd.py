@@ -126,7 +126,8 @@ def render_env(paths: dict[str, Path]) -> str:
         "QG_TELEGRAM_PUSH_ALLOWED": "1",
         "QG_TELEGRAM_COMMANDS_ALLOWED": "0",
         "QG_MT5_AI_DEEPSEEK_ENABLED": "1",
-        "QG_MT5_AI_MONITOR_SYMBOLS": "USDJPYc,EURUSDc,XAUUSDc",
+        "QG_AUTOMATION_SYMBOLS": "USDJPYc",
+        "QG_MT5_AI_MONITOR_SYMBOLS": "USDJPYc",
         "QG_MT5_AI_MONITOR_TIMEFRAMES": "M15,H1,H4,D1",
         "QG_MT5_AI_MONITOR_MIN_INTERVAL_SECONDS": "900",
     }
