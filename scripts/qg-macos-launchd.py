@@ -206,7 +206,7 @@ exec "$QG_PYTHON_BIN" tools/run_mt5_ai_telegram_monitor.py scan-once \
   --repo-root "$QG_BACKEND_ROOT" \
   --env-file "$QG_BACKEND_ROOT/.env.telegram.local" \
   --deepseek-env-file "$QG_BACKEND_ROOT/.env.deepseek.local" \
-  --symbols "${QG_MT5_AI_MONITOR_SYMBOLS:-USDJPYc,EURUSDc,XAUUSDc}" \
+  --symbols "${QG_MT5_AI_MONITOR_SYMBOLS:-USDJPYc}" \
   --timeframes "${QG_MT5_AI_MONITOR_TIMEFRAMES:-M15,H1,H4,D1}" \
   --min-interval-seconds "${QG_MT5_AI_MONITOR_MIN_INTERVAL_SECONDS:-900}"
 ''',
