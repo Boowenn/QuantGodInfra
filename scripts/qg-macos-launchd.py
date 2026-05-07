@@ -45,8 +45,8 @@ SERVICES: dict[str, dict[str, Any]] = {
         "label": f"{LABEL_PREFIX}.daily-autopilot",
         "wrapper": "quantgod-daily-autopilot.sh",
         "kind": "interval",
-        "interval": 3600,
-        "description": "Daily review, ParamLab, Polymarket, governance evidence loop",
+        "interval": 300,
+        "description": "QuantGod Agent v2.5 USDJPY live loop and autonomous daily review",
     },
     "ai-telegram-monitor": {
         "label": f"{LABEL_PREFIX}.ai-telegram-monitor",
@@ -120,6 +120,15 @@ def render_env(paths: dict[str, Path]) -> str:
         "QG_DAILY_AUTOPILOT_INTERVAL_MINUTES": "60",
         "QG_DAILY_AUTOPILOT_MAX_TASKS": "8",
         "QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN": "1",
+        "QG_LEGACY_DAILY_AUTOPILOT_ENABLED": "0",
+        "QG_AGENT_V25_INTERVAL_SECONDS": "300",
+        "QG_AGENT_V25_SEND_TELEGRAM": "0",
+        "QG_FOCUS_SYMBOL": "USDJPYc",
+        "QG_ALLOWED_SYMBOLS": "USDJPYc",
+        "QG_DISABLE_NON_FOCUS_SYMBOLS": "1",
+        "QG_ACCOUNT_MODE": "cent",
+        "QG_ACCOUNT_CURRENCY_UNIT": "USC",
+        "QG_CENT_ACCOUNT_ACCELERATION": "1",
         "QG_POLYMARKET_REAL_EXECUTION": "false",
         "QG_POLYMARKET_CANARY_KILL_SWITCH": "true",
         "QG_POLYMARKET_LLM_MODE": "off",
@@ -194,7 +203,7 @@ exec "$QG_NPM_BIN" run dev -- --host 127.0.0.1 --port 5173
         "quantgod-daily-autopilot.sh": header
         + r'''
 cd "$QG_BACKEND_ROOT"
-exec bash tools/run_mac_daily_autopilot.sh --once
+exec bash tools/run_mac_agent_v25_loop.sh --once
 ''',
         "quantgod-ai-telegram-monitor.sh": header
         + r'''

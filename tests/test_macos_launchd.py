@@ -28,9 +28,21 @@ class MacLaunchdHelperTests(unittest.TestCase):
             self.assertIn("QG_BACKEND_ROOT", text)
             self.assertIn("QuantGodBackend", text)
             self.assertIn("QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN='1'", text)
+            self.assertIn("QG_LEGACY_DAILY_AUTOPILOT_ENABLED='0'", text)
+            self.assertIn("QG_AGENT_V25_INTERVAL_SECONDS='300'", text)
+            self.assertIn("QG_FOCUS_SYMBOL='USDJPYc'", text)
+            self.assertIn("QG_ALLOWED_SYMBOLS='USDJPYc'", text)
+            self.assertIn("QG_ACCOUNT_MODE='cent'", text)
             self.assertIn("QG_POLYMARKET_REAL_EXECUTION='false'", text)
             self.assertIn("QG_TELEGRAM_COMMANDS_ALLOWED='0'", text)
             self.assertNotIn("/QuantGod/", text)
+
+    def test_daily_autopilot_wrapper_runs_agent_v25_once(self) -> None:
+        wrappers = launchd.render_wrappers()
+        daily = wrappers["quantgod-daily-autopilot.sh"]
+        self.assertIn("tools/run_mac_agent_v25_loop.sh --once", daily)
+        self.assertNotIn("tools/run_mac_daily_autopilot.sh --once", daily)
+        self.assertIn("QG_BACKEND_ROOT", daily)
 
     def test_plists_keep_trading_mutation_out_of_launch_layer(self) -> None:
         for service in launchd.SERVICES.values():

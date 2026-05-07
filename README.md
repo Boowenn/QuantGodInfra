@@ -71,7 +71,7 @@ python3 scripts/qg-macos-launchd.py status
 
 - `com.quantgod.backend-api`：保持后端 `/api/*` 与 `/vue/` 服务可用。
 - `com.quantgod.frontend-dev`：保持本机 Vite 前端 `http://127.0.0.1:5173/vue/` 可用。
-- `com.quantgod.daily-autopilot`：每小时刷新 MT5、ParamLab、Polymarket、治理、每日复盘和待办证据；隔离 Strategy Tester 只在 guard 允许时运行。
+- `com.quantgod.daily-autopilot`：每 5 分钟运行 QuantGod Agent v2.5，一次性刷新 USDJPY live-loop、策略政策、EA 干跑、Agent 今日待办和每日复盘；旧 Daily Autopilot 仅在显式 `QG_LEGACY_DAILY_AUTOPILOT_ENABLED=1` 时启用。
 - `com.quantgod.ai-telegram-monitor`：每 15 分钟读取 MT5 证据，联动 DeepSeek 生成中文建议，并通过 Telegram push-only 通道推送。
 
 私有环境写入 `~/.quantgod/launchd.env`，日志写入 `~/.quantgod/logs/`。Telegram token 与 DeepSeek key 继续只放在
