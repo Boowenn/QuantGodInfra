@@ -1,37 +1,35 @@
 # QuantGodInfra
 
-QuantGod 四仓库工作区的基础设施与联动自动化仓库。
+QuantGodInfra owns the local workspace automation, deployment support, dist synchronization, macOS LaunchAgent setup, and split-repository validation for QuantGod.
 
-## 仓库职责
+It does not own trading logic, Vue components, MT5 presets, or product documentation. Its role is to keep the four repositories operating as one controlled local system.
 
-- Cloudflare worker/static deployment 文件。
-- 多仓库 workspace helper。
-- `QuantGodFrontend/dist` 到 `QuantGodBackend/Dashboard/vue-dist` 的同步。
-- 可选 Cloud Sync 上传器；脚本在 Infra，读取 backend 的 `Dashboard/QuantGod_Dashboard.json`。
-- 四仓库状态、构建、验证联动。
-- 与部署相关的脚本和说明。
+## Repository Role
 
-本仓库不拥有后端业务逻辑、Vue 组件源码或完整产品文档。
+| Area | Path | Responsibility |
+|---|---|---|
+| Workspace helper | `scripts/qg-workspace.py` | Multi-repository status, tests, frontend build, dist sync, closed-loop verification |
+| macOS automation | `scripts/qg-macos-launchd.py` | LaunchAgent generation for API, Vite, Agent v2.5, and AI Telegram monitor |
+| Local Docker | `docker/`, `scripts/qg-docker-local.py` | Optional local backend/frontend Compose stack |
+| Cloud sync | `scripts/cloud-sync/` | Optional dashboard snapshot uploader |
+| Guards | `scripts/qg-split-path-guard.py`, tests | Split-repo path and boundary validation |
 
-## 初始化工作区
+Related repositories:
 
-复制示例配置并按本机路径调整：
+- Backend: `../QuantGodBackend`
+- Frontend: `../QuantGodFrontend`
+- Docs: `../QuantGodDocs`
 
-```powershell
-Copy-Item workspace\quantgod.workspace.example.json workspace\quantgod.workspace.json
-notepad workspace\quantgod.workspace.json
+## Workspace Configuration
+
+Create a local workspace file:
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodInfra
+cp workspace/quantgod.workspace.example.json workspace/quantgod.workspace.json
 ```
 
-推荐目录结构：
-
-```text
-C:\QuantGod\QuantGodBackend
-C:\QuantGod\QuantGodFrontend
-C:\QuantGod\QuantGodInfra
-C:\QuantGod\QuantGodDocs
-```
-
-macOS 本机当前对应结构通常是：
+Recommended macOS layout:
 
 ```text
 /Users/bowen/Desktop/Quard/QuantGodBackend
@@ -40,25 +38,31 @@ macOS 本机当前对应结构通常是：
 /Users/bowen/Desktop/Quard/QuantGodDocs
 ```
 
-## 常用命令
+Windows layouts are supported through the same workspace JSON.
 
-```powershell
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json status
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json pull
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json test
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json build-frontend
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json sync-frontend-dist
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json verify
-python scripts\qg-workspace.py --workspace workspace\quantgod.workspace.json closed-loop
+## Workspace Commands
+
+```bash
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json status
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json test
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json build-frontend
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json sync-frontend-dist
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json verify
+python3 scripts/qg-workspace.py --workspace workspace/quantgod.workspace.json closed-loop
 ```
 
-`closed-loop` 是本地最小闭环：先跑前端 API/拆包/单元 guard，再编译 Vue，随后把 `dist/`
-同步到 `QuantGodBackend/Dashboard/vue-dist`，最后跑 backend Python/Node 检查和 Docs 链接检查。
-它不会改 MT5 实盘配置、不会保存凭据，也不会触发任何交易动作。
+`closed-loop` performs the local operator-workbench path:
 
-## macOS 后台自动化
+1. Run frontend guards.
+2. Build Vue.
+3. Sync `dist/` into backend `Dashboard/vue-dist/`.
+4. Run backend and docs verification.
 
-macOS 本机使用 `launchd` 做常驻自动化。Infra 提供统一安装器：
+It does not modify MT5 live presets, credentials, wallet state, or trading configuration.
+
+## macOS LaunchAgents
+
+Install local background services:
 
 ```bash
 cd /Users/bowen/Desktop/Quard/QuantGodInfra
@@ -67,42 +71,82 @@ python3 scripts/qg-macos-launchd.py --workspace workspace/quantgod.workspace.jso
 python3 scripts/qg-macos-launchd.py status
 ```
 
-安装后会生成并加载四个 LaunchAgent：
+Generated agents:
 
-- `com.quantgod.backend-api`：保持后端 `/api/*` 与 `/vue/` 服务可用。
-- `com.quantgod.frontend-dev`：保持本机 Vite 前端 `http://127.0.0.1:5173/vue/` 可用。
-- `com.quantgod.daily-autopilot`：每 5 分钟运行 QuantGod Agent v2.5，一次性刷新 USDJPY live-loop、策略政策、EA 干跑、Agent 今日待办和每日复盘；旧 Daily Autopilot 仅在显式 `QG_LEGACY_DAILY_AUTOPILOT_ENABLED=1` 时启用。
-- `com.quantgod.ai-telegram-monitor`：每 15 分钟读取 MT5 证据，联动 DeepSeek 生成中文建议，并通过 Telegram push-only 通道推送。
+| Agent | Purpose |
+|---|---|
+| `com.quantgod.backend-api` | Backend `/api/*` and static `/vue/` server |
+| `com.quantgod.frontend-dev` | Vite workbench at `http://127.0.0.1:5173/vue/` |
+| `com.quantgod.daily-autopilot` | Agent v2.5 USDJPY live-loop, policy, daily todo, daily review |
+| `com.quantgod.ai-telegram-monitor` | DeepSeek-assisted MT5 advisory push-only monitor |
 
-私有环境写入 `~/.quantgod/launchd.env`，日志写入 `~/.quantgod/logs/`。Telegram token 与 DeepSeek key 继续只放在
-`QuantGodBackend/.env.telegram.local` 和 `QuantGodBackend/.env.deepseek.local`，不会写入 Git。
+Private environment values live in `~/.quantgod/launchd.env`. Logs are written to `~/.quantgod/logs/`.
 
-卸载：
+Uninstall:
 
 ```bash
 python3 scripts/qg-macos-launchd.py uninstall
 ```
 
-拆分路径检查：
+## Agent v2.5 Launch Policy
+
+Infra intentionally starts Agent v2.5, not the legacy daily autopilot loop.
+
+Default launchd environment:
+
+```text
+QG_FOCUS_SYMBOL=USDJPYc
+QG_ALLOWED_SYMBOLS=USDJPYc
+QG_DISABLE_NON_FOCUS_SYMBOLS=1
+QG_ACCOUNT_MODE=cent
+QG_ACCOUNT_CURRENCY_UNIT=USC
+QG_CENT_ACCOUNT_ACCELERATION=1
+QG_LEGACY_DAILY_AUTOPILOT_ENABLED=0
+QG_AGENT_V25_INTERVAL_SECONDS=300
+```
+
+Telegram and DeepSeek credentials remain in backend-local `.env.*.local` files and must not be committed.
+
+## Local Docker
+
+Docker is optional and is intended for local backend/frontend development only:
 
 ```bash
+python3 scripts/qg-docker-local.py static-check
+python3 scripts/qg-docker-local.py doctor
+python3 scripts/qg-docker-local.py config
+python3 scripts/qg-docker-local.py up
+```
+
+The local Docker stack does not introduce broker execution, public ingress, billing, user accounts, or credential storage.
+
+## Cloudflare and Cloud Sync
+
+Cloudflare deployment and Cloud Sync are optional. Local MT5/HFM operation does not depend on them.
+
+Cloud Sync reads backend dashboard evidence and uploads selected snapshots when explicitly configured. Tokens must live in environment variables, Wrangler secrets, or ignored local config.
+
+## Validation
+
+```bash
+cd /Users/bowen/Desktop/Quard/QuantGodInfra
+python3 -m unittest discover tests -v
 python3 scripts/qg-split-path-guard.py --root /Users/bowen/Desktop/Quard --include-codex-automations
 ```
 
-## Cloudflare
+Focused launchd tests:
 
-Cloudflare 是可选能力，本地 HFM/MT5 运行不依赖它。所有 token 和 secret 必须放在 Wrangler secrets 或本机环境变量里，不能进入 Git。
-
-## Cloud Sync 上传器
-
-历史上 Cloud Sync 脚本曾放在 backend 的 `Dashboard/` 目录；拆分后已经迁到 Infra，避免 backend 混入部署脚本。使用时显式指定 backend Dashboard 运行目录：
-
-```powershell
-$env:QG_BACKEND_DASHBOARD_DIR="C:\QuantGod\QuantGodBackend\Dashboard"
-node scripts\cloud-sync\cloud_sync_uploader.js
-
-powershell -ExecutionPolicy Bypass -File scripts\cloud-sync\cloud_sync_uploader.ps1 `
-  -DashboardDir C:\QuantGod\QuantGodBackend\Dashboard
+```bash
+python3 -m unittest tests.test_macos_launchd -v
 ```
 
-启用配置请从 `scripts/cloud-sync/quantgod_cloud_sync.example.json` 复制为 backend Dashboard 运行目录下的 `quantgod_cloud_sync.enabled.json`，不要提交 token。
+## Safety Boundaries
+
+Infra may start processes and synchronize static assets. It must not:
+
+- Write MT5 live trading decisions.
+- Store Telegram, DeepSeek, broker, wallet, or private-key secrets in Git.
+- Add Telegram command execution.
+- Add Polymarket wallet execution.
+- Mutate live preset risk settings.
+- Convert optional Cloudflare tooling into a required runtime dependency.
