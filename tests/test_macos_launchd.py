@@ -30,6 +30,12 @@ class MacLaunchdHelperTests(unittest.TestCase):
             self.assertIn("QG_DAILY_AUTOPILOT_ALLOW_TESTER_RUN='1'", text)
             self.assertIn("QG_LEGACY_DAILY_AUTOPILOT_ENABLED='0'", text)
             self.assertIn("QG_AGENT_V25_INTERVAL_SECONDS='300'", text)
+            self.assertIn("QG_MT5_TERMINAL_PATH", text)
+            self.assertIn("QG_MT5_PYTHON_BIN", text)
+            self.assertIn("QG_USDJPY_HISTORY_SYNC_ENABLED='1'", text)
+            self.assertIn("QG_USDJPY_HISTORY_MONTHS='12'", text)
+            self.assertIn("QG_USDJPY_HISTORY_TIMEFRAMES='M1,M5,M15,H1'", text)
+            self.assertIn("QG_USDJPY_MT5_SYMBOL='USDJPYc'", text)
             self.assertIn("QG_FOCUS_SYMBOL='USDJPYc'", text)
             self.assertIn("QG_ALLOWED_SYMBOLS='USDJPYc'", text)
             self.assertIn("QG_ACCOUNT_MODE='cent'", text)
@@ -44,7 +50,15 @@ class MacLaunchdHelperTests(unittest.TestCase):
         self.assertNotIn("tools/run_mac_daily_autopilot.sh --once", daily)
         self.assertIn("QG_BACKEND_ROOT", daily)
 
+    def test_history_sync_wrapper_runs_sync_klines_once(self) -> None:
+        wrappers = launchd.render_wrappers()
+        history = wrappers["quantgod-usdjpy-history-sync.sh"]
+        self.assertIn("tools/run_mac_usdjpy_history_sync_loop.sh --once", history)
+        self.assertIn("QG_BACKEND_ROOT", history)
+
     def test_plists_keep_trading_mutation_out_of_launch_layer(self) -> None:
+        labels = {name: service["label"] for name, service in launchd.SERVICES.items()}
+        self.assertIn("usdjpy-history-sync", labels)
         for service in launchd.SERVICES.values():
             payload = launchd.render_plist(service)
             serialized = json.dumps(payload, sort_keys=True)

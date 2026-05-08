@@ -9,7 +9,7 @@ It does not own trading logic, Vue components, MT5 presets, or product documenta
 | Area | Path | Responsibility |
 |---|---|---|
 | Workspace helper | `scripts/qg-workspace.py` | Multi-repository status, tests, frontend build, dist sync, closed-loop verification |
-| macOS automation | `scripts/qg-macos-launchd.py` | LaunchAgent generation for API, Vite, Agent v2.5, and AI Telegram monitor |
+| macOS automation | `scripts/qg-macos-launchd.py` | LaunchAgent generation for API, Vite, Agent v2.5, USDJPY history sync, and AI Telegram monitor |
 | Local Docker | `docker/`, `scripts/qg-docker-local.py` | Optional local backend/frontend Compose stack |
 | Cloud sync | `scripts/cloud-sync/` | Optional dashboard snapshot uploader |
 | Guards | `scripts/qg-split-path-guard.py`, tests | Split-repo path and boundary validation |
@@ -78,6 +78,7 @@ Generated agents:
 | `com.quantgod.backend-api` | Backend `/api/*` and static `/vue/` server |
 | `com.quantgod.frontend-dev` | Vite workbench at `http://127.0.0.1:5173/vue/` |
 | `com.quantgod.daily-autopilot` | Agent v2.5 USDJPY live-loop, policy, daily todo, daily review |
+| `com.quantgod.usdjpy-history-sync` | Hourly USDJPY MT5 K-line sync into `runtime/backtest/usdjpy.sqlite` |
 | `com.quantgod.ai-telegram-monitor` | DeepSeek-assisted MT5 advisory push-only monitor |
 
 Private environment values live in `~/.quantgod/launchd.env`. Logs are written to `~/.quantgod/logs/`.
@@ -103,7 +104,17 @@ QG_ACCOUNT_CURRENCY_UNIT=USC
 QG_CENT_ACCOUNT_ACCELERATION=1
 QG_LEGACY_DAILY_AUTOPILOT_ENABLED=0
 QG_AGENT_V25_INTERVAL_SECONDS=300
+QG_MT5_TERMINAL_PATH=<local MetaTrader 5 terminal64.exe>
+QG_MT5_PYTHON_BIN=<python3 with optional MetaTrader5 package>
+QG_USDJPY_HISTORY_SYNC_ENABLED=1
+QG_USDJPY_HISTORY_INTERVAL_SECONDS=3600
+QG_USDJPY_HISTORY_MONTHS=12
+QG_USDJPY_HISTORY_TIMEFRAMES=M1,M5,M15,H1
 ```
+
+`com.quantgod.usdjpy-history-sync` calls Backend `tools/run_mac_usdjpy_history_sync_loop.sh --once`.
+When the local Python environment has the `MetaTrader5` package and `QG_MT5_TERMINAL_PATH` points at the HFM/MT5 terminal, it uses `copy_rates_range` to gradually fill 6-12 months of USDJPY bars into SQLite.
+If MT5 Python is unavailable, Backend falls back to runtime snapshots and reports that full historical coverage is still pending.
 
 Telegram and DeepSeek credentials remain in backend-local `.env.*.local` files and must not be committed.
 

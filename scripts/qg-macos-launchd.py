@@ -48,6 +48,13 @@ SERVICES: dict[str, dict[str, Any]] = {
         "interval": 300,
         "description": "QuantGod Agent v2.5 USDJPY live loop and autonomous daily review",
     },
+    "usdjpy-history-sync": {
+        "label": f"{LABEL_PREFIX}.usdjpy-history-sync",
+        "wrapper": "quantgod-usdjpy-history-sync.sh",
+        "kind": "interval",
+        "interval": 3600,
+        "description": "USDJPY MT5 historical K-line sync into SQLite",
+    },
     "ai-telegram-monitor": {
         "label": f"{LABEL_PREFIX}.ai-telegram-monitor",
         "wrapper": "quantgod-ai-telegram-monitor.sh",
@@ -97,8 +104,16 @@ def default_mt5_files_dir() -> Path:
     )
 
 
+def default_mt5_terminal_path() -> Path:
+    return (
+        Path.home()
+        / "Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/terminal64.exe"
+    )
+
+
 def render_env(paths: dict[str, Path]) -> str:
     mt5_files = default_mt5_files_dir()
+    python_bin = which("python3", "/usr/bin/python3")
     runtime_dir = mt5_files if mt5_files.exists() else paths["backend"] / "Dashboard"
     rows = {
         "QG_BACKEND_ROOT": str(paths["backend"]),
@@ -107,7 +122,9 @@ def render_env(paths: dict[str, Path]) -> str:
         "QG_DOCS_ROOT": str(paths["docs"]),
         "QG_NODE_BIN": which("node", "/usr/bin/node"),
         "QG_NPM_BIN": which("npm", "/usr/bin/npm"),
-        "QG_PYTHON_BIN": which("python3", "/usr/bin/python3"),
+        "QG_PYTHON_BIN": python_bin,
+        "QG_MT5_PYTHON_BIN": python_bin,
+        "QG_MT5_TERMINAL_PATH": str(default_mt5_terminal_path()),
         "QG_DASHBOARD_HOST": "127.0.0.1",
         "QG_DASHBOARD_PORT": "8080",
         "QG_DASHBOARD_FILES_DIR": str(paths["backend"] / "Dashboard"),
@@ -123,6 +140,12 @@ def render_env(paths: dict[str, Path]) -> str:
         "QG_LEGACY_DAILY_AUTOPILOT_ENABLED": "0",
         "QG_AGENT_V25_INTERVAL_SECONDS": "300",
         "QG_AGENT_V25_SEND_TELEGRAM": "0",
+        "QG_USDJPY_HISTORY_SYNC_ENABLED": "1",
+        "QG_USDJPY_HISTORY_INTERVAL_SECONDS": "3600",
+        "QG_USDJPY_HISTORY_MONTHS": "12",
+        "QG_USDJPY_HISTORY_TIMEFRAMES": "M1,M5,M15,H1",
+        "QG_USDJPY_HISTORY_MAX_BARS": "700000",
+        "QG_USDJPY_MT5_SYMBOL": "USDJPYc",
         "QG_FOCUS_SYMBOL": "USDJPYc",
         "QG_ALLOWED_SYMBOLS": "USDJPYc",
         "QG_DISABLE_NON_FOCUS_SYMBOLS": "1",
@@ -204,6 +227,11 @@ exec "$QG_NPM_BIN" run dev -- --host 127.0.0.1 --port 5173
         + r'''
 cd "$QG_BACKEND_ROOT"
 exec bash tools/run_mac_agent_v25_loop.sh --once
+''',
+        "quantgod-usdjpy-history-sync.sh": header
+        + r'''
+cd "$QG_BACKEND_ROOT"
+exec bash tools/run_mac_usdjpy_history_sync_loop.sh --once
 ''',
         "quantgod-ai-telegram-monitor.sh": header
         + r'''
@@ -337,11 +365,26 @@ def doctor(args: argparse.Namespace) -> int:
         print(f"{key:8s} {marker:7s} {path}")
     print(f"node     {which('node', 'missing')}")
     print(f"npm      {which('npm', 'missing')}")
-    print(f"python3  {which('python3', 'missing')}")
+    python_bin = which("python3", "missing")
+    print(f"python3  {python_bin}")
     print(f"mt5Files {'OK' if default_mt5_files_dir().exists() else 'MISSING'} {default_mt5_files_dir()}")
+    print(f"mt5Term  {'OK' if default_mt5_terminal_path().exists() else 'MISSING'} {default_mt5_terminal_path()}")
+    print(f"mt5Py    {_mt5_python_marker(python_bin)} {python_bin}")
     print(f"telegram {'OK' if (paths['backend'] / '.env.telegram.local').exists() else 'MISSING'}")
     print(f"deepseek {'OK' if (paths['backend'] / '.env.deepseek.local').exists() else 'MISSING'}")
     return 0
+
+
+def _mt5_python_marker(python_bin: str) -> str:
+    if python_bin == "missing":
+        return "MISSING"
+    result = subprocess.run(
+        [python_bin, "-c", "import MetaTrader5"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return "OK" if result.returncode == 0 else "MISSING"
 
 
 def build_parser() -> argparse.ArgumentParser:
