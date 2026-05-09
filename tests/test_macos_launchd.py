@@ -35,6 +35,7 @@ class MacLaunchdHelperTests(unittest.TestCase):
             self.assertIn("QG_USDJPY_HISTORY_SYNC_ENABLED='1'", text)
             self.assertIn("QG_USDJPY_HISTORY_MONTHS='12'", text)
             self.assertIn("QG_USDJPY_HISTORY_TIMEFRAMES='M1,M5,M15,H1'", text)
+            self.assertIn("QG_USDJPY_HISTORY_MAX_LAG_HOURS='96'", text)
             self.assertIn("QG_USDJPY_MT5_SYMBOL='USDJPYc'", text)
             self.assertIn("QG_FOCUS_SYMBOL='USDJPYc'", text)
             self.assertIn("QG_ALLOWED_SYMBOLS='USDJPYc'", text)

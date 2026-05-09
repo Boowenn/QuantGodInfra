@@ -145,6 +145,7 @@ def render_env(paths: dict[str, Path]) -> str:
         "QG_USDJPY_HISTORY_MONTHS": "12",
         "QG_USDJPY_HISTORY_TIMEFRAMES": "M1,M5,M15,H1",
         "QG_USDJPY_HISTORY_MAX_BARS": "700000",
+        "QG_USDJPY_HISTORY_MAX_LAG_HOURS": "96",
         "QG_USDJPY_MT5_SYMBOL": "USDJPYc",
         "QG_FOCUS_SYMBOL": "USDJPYc",
         "QG_ALLOWED_SYMBOLS": "USDJPYc",
