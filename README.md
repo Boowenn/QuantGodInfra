@@ -77,7 +77,7 @@ Generated agents:
 |---|---|
 | `com.quantgod.backend-api` | Backend `/api/*` and static `/vue/` server |
 | `com.quantgod.frontend-dev` | Vite workbench at `http://127.0.0.1:5173/vue/` |
-| `com.quantgod.daily-autopilot` | Agent v2.5 USDJPY live-loop, policy, daily todo, daily review |
+| `com.quantgod.daily-autopilot` | Agent v2.5 USDJPY live-loop, policy, daily review, AgentOpsHealth, and P4-9 burn-in ledger |
 | `com.quantgod.usdjpy-history-sync` | Hourly USDJPY MT5 K-line sync into `runtime/backtest/usdjpy.sqlite` |
 | `com.quantgod.ai-telegram-monitor` | DeepSeek-assisted MT5 advisory push-only monitor |
 
@@ -104,6 +104,11 @@ QG_ACCOUNT_CURRENCY_UNIT=USC
 QG_CENT_ACCOUNT_ACCELERATION=1
 QG_LEGACY_DAILY_AUTOPILOT_ENABLED=0
 QG_AGENT_V25_INTERVAL_SECONDS=300
+QG_AGENT_OPS_HEALTH_ENABLED=1
+QG_PRODUCTION_BURN_IN_ENABLED=1
+QG_PRODUCTION_BURN_IN_INTERVAL_SECONDS=300
+QG_PRODUCTION_BURN_IN_SAMPLE_INTERVAL_MINUTES=5
+QG_PRODUCTION_BURN_IN_WINDOW_HOURS=72
 QG_MT5_TERMINAL_PATH=<local MetaTrader 5 terminal64.exe>
 QG_MT5_PYTHON_BIN=<python3 with optional MetaTrader5 package>
 QG_USDJPY_HISTORY_SYNC_ENABLED=1
